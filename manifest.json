@@ -1,0 +1,23 @@
+{
+  "name": "cookie sync",
+  "version": "0.1",
+  "description": "同步cookie",
+  "permissions": [
+    "storage",
+    "declarativeContent",
+    "cookies",
+    "tabs",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "icons": { "16": "cookie.png", "48": "cookie.png", "128": "cookie.png" },
+  "page_action": {
+    "default_popup": "popup.html",
+    "default_icon": "cookie.png"
+  },
+  "options_page": "options.html",
+  "manifest_version": 2
+}
