@@ -13,15 +13,25 @@
       }
 
       .container {
+        display: flex;
+        flex-wrap: wrap;
         width: 100px;
-        height: 100px;
       }
 
       .btn {
-        width: 100%;
-        height: 33.3%;
+        padding: 4px 10px;
+        flex: 50%;
         cursor: pointer;
-        background-color: #fff;
+        background-color: #e6f2ff;
+        border: 1px solid #cce5ff;
+      }
+
+      .btn:hover {
+        background-color: #b3d7ff;
+      }
+
+      .btn:active {
+        background-color: #99c9ff;
       }
     </style>
   </head>
@@ -29,6 +39,8 @@
     <div class="container">
       <button id="copy" class="btn">复制</button>
       <button id="paste" class="btn">粘贴</button>
+      <button id="export" class="btn">导出</button>
+      <button id="import" class="btn">导入</button>
       <button id="setting" class="btn">设置</button>
     </div>
     <script src="popup.js"></script>
