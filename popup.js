@@ -3,6 +3,7 @@ const pasteBtn = document.getElementById("paste");
 const exportBtn = document.getElementById("export");
 const importBtn = document.getElementById("import");
 const settingBtn = document.getElementById("setting");
+
 const promisify =
   (fn) =>
   (...args) =>
@@ -36,15 +37,6 @@ const eventWrapper = (fn) => async () => {
   }
 };
 
-const getCurConfig = async () => {
-  const tabs = await tabQuery({ active: true, currentWindow: true });
-  const curTab = tabs[0];
-  const url = curTab.url;
-  const tabId = curTab.id;
-  const storeId = await getCurStoreId(tabId);
-  return { url, storeId };
-};
-
 const getCurStoreId = async (tabId) => {
   const cookieStores = await getAllCookieStores();
   let storeId = 0;
@@ -54,6 +46,15 @@ const getCurStoreId = async (tabId) => {
     }
   });
   return storeId;
+};
+
+const getCurConfig = async () => {
+  const tabs = await tabQuery({ active: true, currentWindow: true });
+  const curTab = tabs[0];
+  const url = curTab.url;
+  const tabId = curTab.id;
+  const storeId = await getCurStoreId(tabId);
+  return { url, tabId, storeId };
 };
 
 const copyFn = async () => {
@@ -73,23 +74,23 @@ const removeCookie = (cookie) => {
 const pasteFn = async () => {
   const { cookies } = await getStorage();
   console.log("get cookies", cookies);
-  const tabs = await tabQuery({ active: true, currentWindow: true });
-  const curTab = tabs[0];
-  const url = curTab.url;
-  const tabId = curTab.id;
-  const storeId = await getCurStoreId(tabId);
+  const { url, tabId, storeId } = await getCurConfig();
   const oldCookies = await getAllCookie({ url, storeId });
   console.log("get oldCookies", oldCookies);
   oldCookies.forEach(removeCookie);
-  cookies.forEach((cookie) => {
-    setCookie({
-      url,
-      name: cookie.name,
-      value: cookie.value,
-      path: "/",
-      storeId,
-    });
-  });
+  await Promise.all(
+    cookies.map((cookie) =>
+      setCookie({
+        url,
+        name: cookie.name,
+        value: cookie.value,
+        path: "/",
+        storeId,
+      })
+    )
+  );
+
+  chrome.tabs.reload(tabId);
 };
 
 const focusOrCreateTab = (url) => {
@@ -118,31 +119,42 @@ const settingFn = async () => {
   focusOrCreateTab(manager_url);
 };
 
-const getTpl = ({ sid, sso }) => {
-  console.log({ sid, sso });
+const getTpl = (ssoCookies) => {
+  const keyMap = {
+    "s-sid": "S_SID",
+    SSO_USER_TOKEN: "SSO_USER_TOKEN",
+  };
   let res = "";
-  if (sid) {
-    res += `export S_SID=${sid};`;
-  }
-  if (sso) {
-    res += `export SSO_USER_TOKEN=${sso};`;
-  }
+  ssoCookies.forEach((cookie) => {
+    const { name, value } = cookie;
+    res += `export ${keyMap[name]}=${value};`;
+  });
+
   return res;
 };
 
 const getToken = (tpl) => {
-  let res = { sid: "", sso: "" };
+  const keyMap = {
+    S_SID: "s-sid",
+    "s-sid": "s-sid",
+    sid: "s-sid",
+    SSO_USER_TOKEN: "SSO_USER_TOKEN",
+    sso: "SSO_USER_TOKEN",
+    token: "SSO_USER_TOKEN",
+  };
+  let res = [];
   const strs = tpl.split(";").filter(Boolean);
   console.log(strs);
   strs.forEach((str) => {
     const data = str.includes("export") ? str.slice(7) : str;
     console.log(data);
-    const [k, v] = data.split("=");
-    if (["S_SID", "s-sid", "sid"].includes(k)) {
-      res.sid = v;
-    }
-    if (["SSO_USER_TOKEN", "sso", "token"].includes(k)) {
-      res.sso = v;
+    let [k, v] = data.split("=").map((d) => d?.trim());
+    const realKey = keyMap[k];
+    if (realKey) {
+      res.push({
+        name: realKey,
+        value: v,
+      });
     }
   });
   console.log(res);
@@ -150,62 +162,57 @@ const getToken = (tpl) => {
   return res;
 };
 
-const write_Clipper = (text) => {
-  // 创建input元素，给input传值，将input放入html里，选择input
+const readClipper = () => {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({}, async function (result) {
+      resolve(result);
+    });
+  });
+};
+
+const writeClipper = (text) => {
   let w = document.createElement("input");
   w.value = text;
   document.body.appendChild(w);
   w.select();
-
-  // 调用浏览器的复制命令
   document.execCommand("Copy");
-
-  // 将input元素隐藏，通知操作完成！
   w.style.display = "none";
 };
 
 const importFn = async () => {
-  chrome.runtime.sendMessage({}, async function (result) {
-    console.log(result);
-    const token = getToken(result);
-    const { sid, sso } = token;
-    const { url, storeId } = await getCurConfig();
-    if (sid) {
+  const result = await readClipper();
+  console.log(result);
+  const token = getToken(result);
+  const { url, tabId, storeId } = await getCurConfig();
+  await Promise.all(
+    token.map(({ name, value }) =>
       setCookie({
         url,
-        name: "s-sid",
-        value: sid,
+        name,
+        value,
         path: "/",
         storeId,
-      });
-    }
-    if (sso) {
-      setCookie({
-        url,
-        name: "SSO_USER_TOKEN",
-        value: sso,
-        path: "/",
-        storeId,
-      });
-    }
-  });
+      })
+    )
+  );
+
+  chrome.tabs.reload(tabId);
 };
+
 const exportFn = async () => {
   const { url, storeId } = await getCurConfig();
   const cookies = await getAllCookie({ url, storeId });
 
-  const sidCookie = cookies.filter((c) => c.name === "s-sid");
-  const ssoCookie = cookies.filter((c) => c.name === "SSO_USER_TOKEN");
+  const ssoCookie = cookies
+    .filter((c) => c.name === "s-sid" || c.name === "SSO_USER_TOKEN")
+    .map((d) => ({
+      name: d.name,
+      value: d.value,
+    }));
 
-  console.log("sidCookie", sidCookie, sidCookie?.[0]?.value);
-  console.log("ssoCookie", ssoCookie, ssoCookie?.[0]?.value);
-
-  const text = getTpl({
-    sid: sidCookie?.[0]?.value,
-    sso: ssoCookie?.[0]?.value,
-  });
+  const text = getTpl(ssoCookie);
   console.log(text);
-  write_Clipper(text);
+  writeClipper(text);
 };
 
 copyBtn.addEventListener("click", eventWrapper(copyFn));

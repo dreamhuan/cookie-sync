@@ -19,7 +19,6 @@
 1. 点击插件后点复制
 1. 打开本地起的项目（localhost:3000 或者别的改了 host 的地址）
 1. 点击粘贴
-1. 刷新页面
 
 一句话说明： A 页面复制，B 页面粘贴。效果是吧 A 页面的 cookie 塞给 B 页面
 
@@ -29,7 +28,6 @@
 1. 点击插件后点导出（**注意，这一步操作会覆盖剪切板内容!!!**）
 1. 打开本地起的项目（localhost:3000 或者别的改了 host 的地址）
 1. 点击导入
-1. 刷新页面
 
 一句话说明： 导出把 cookie 的登录态放到剪切板，导入从剪切板读取登录态设置到 cookie
 
@@ -40,17 +38,19 @@
 导出按钮把当前 cookie 的“s-sid”和“SSO_USER_TOKEN”组装成特定格式塞到剪切板。
 
 ```js
-const getTpl = ({ sid, sso }) => {
-  console.log({ sid, sso });
+const getTpl = (ssoCookies) => {
+  const keyMap = {
+    "s-sid": "S_SID",
+    SSO_USER_TOKEN: "SSO_USER_TOKEN",
+  };
   let res = "";
-  if (sid) {
-    res += `export S_SID=${sid};`;
-  }
-  if (sso) {
-    res += `export SSO_USER_TOKEN=${sso};`;
-  }
+  ssoCookies.forEach((cookie) => {
+    const { name, value } = cookie;
+    res += `export ${keyMap[name]}=${value};`;
+  });
   return res;
 };
+
 ```
 
 导入按钮从剪切板读取内容塞到 cookie。内容支持多种格式：
@@ -61,22 +61,27 @@ const getTpl = ({ sid, sso }) => {
 
 ```js
 const getToken = (tpl) => {
-  let res = { sid: "", sso: "" };
+  const keyMap = {
+    S_SID: "s-sid",
+    "s-sid": "s-sid",
+    sid: "s-sid",
+    SSO_USER_TOKEN: "SSO_USER_TOKEN",
+    sso: "SSO_USER_TOKEN",
+    token: "SSO_USER_TOKEN",
+  };
+  let res = [];
   const strs = tpl.split(";").filter(Boolean);
-  console.log(strs);
   strs.forEach((str) => {
     const data = str.includes("export") ? str.slice(7) : str;
-    console.log(data);
-    const [k, v] = data.split("=");
-    if (["S_SID", "s-sid", "sid"].includes(k)) {
-      res.sid = v;
-    }
-    if (["SSO_USER_TOKEN", "sso", "token"].includes(k)) {
-      res.sso = v;
+    let [k, v] = data.split("=").map((d) => d?.trim());
+    const realKey = keyMap[k];
+    if (realKey) {
+      res.push({
+        name: realKey,
+        value: v,
+      });
     }
   });
-  console.log(res);
-
   return res;
 };
 ```
